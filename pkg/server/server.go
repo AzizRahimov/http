@@ -1,8 +1,9 @@
 package server
 
 import (
+	"net/url"
+
 	"bytes"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -10,8 +11,7 @@ import (
 	"sync"
 )
 
-// помнишь это type Handlerfucn func(responsWriter, request)
-type HandlerFunc func(conn net.Conn)
+type HandlerFunc func(req *Request)
 
 type Server struct {
 	addr string
@@ -19,235 +19,196 @@ type Server struct {
 	handlers map[string]HandlerFunc
 }
 
+type Request struct {
+	Conn net.Conn
+	QueryParams url.Values
+	PathParams map[string]string
+	Headers map[string]string
+	Body []byte
+}
+
 func NewServer(addr string) *Server {
 	return &Server{addr: addr, handlers: make(map[string]HandlerFunc)}
 }
 
-func (s *Server) Register(path string, handler HandlerFunc)  {
-	// вот тут у нас значит проблема
+func (s *Server) Register(path string, handler HandlerFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// мы даем ему ключ который возьмем из пути и значением будет handler
 	s.handlers[path] = handler
-
 }
 
-//func (s *Server) Register(path string, handler HandlerFunc)  {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	s.handlers[path]=handler
-//}
-
-//func (s *Server) Start() error  {
-//	//TODO: 	start server on host & port
-//	//TODO: что я тут должен начать??
-//	listener, err := net.Listen("tcp", s.addr)
-//	if err != nil {
-//		log.Println("ошибка при подключении")
-//		return err
-//	}
-//
-//	defer func() {
-//		err = listener.Close()
-//		if err != nil {
-//			log.Print(err)
-//		}
-//	}()
-//
-//
-//	for {
-//		conn, err := listener.Accept()
-//		if err != nil {
-//			fmt.Println("клиент не смог подключится, идем дальше...")
-//			continue
-//		}
-//
-//		// conn который мы даем вот это и нужно присвоить
-//		go s.handle(conn)
-//	}
-//	return nil
-//}
-
-func (s *Server) Start() error {
+func (s *Server) Start() (err error) {
 	listener, err := net.Listen("tcp", s.addr)
 	if err != nil {
-		log.Print(err)
+		log.Println(err)
 		return err
 	}
-
 	defer func() {
-		err = listener.Close()
-		if err != nil {
-			log.Print(err)
+		if cerr := listener.Close(); cerr != nil {
+			err = cerr
+			return
 		}
 	}()
-
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Print(err)
-			return err
+			continue
 		}
 
 		go s.handle(conn)
 	}
-
-	return nil
 }
-
-
-
-
-
-
-//func (s *Server)  handle(conn net.Conn)  {
-//
-//	defer func() {
-//		err := conn.Close()
-//		if err != nil {
-//			log.Println(err)
-//			return
-//		}
-//	}()
-//	//TODO: тут  говорится, что я могу сразу  искать... но ведь это не так
-//	buf := make([]byte, 4096)
-//	n, err := conn.Read(buf)
-//	if err == io.EOF{
-//		fmt.Printf("%s", buf[:n])
-//		return // помоему я должен это остановить.. не?
-//	}
-//	log.Printf("%s", buf[:n])
-//	data :=  buf[:n]
-//	requestLineDelim := []byte{'\r', '\n'}
-//	requestLineEnd := bytes.Index(data, requestLineDelim)
-//	if requestLineEnd == -1{
-//		log.Println("-1")
-//		return
-//	}
-//	// тут мы должны получить 3 данных
-//	requestLine := string(data[:requestLineEnd]) // она возвращает 3 элемента, только они слитыне
-//	parts := strings.Split(requestLine, " ")
-//	if len(parts) != 3{
-//		fmt.Println("длинна не 3")
-//		return
-//	}
-//	method, path, version := parts[0], parts[1], parts[2]
-//	if method != "GET"{
-//		fmt.Println("проблема с методом")
-//		return
-//	}
-//	if version != "HTTP/1.1"{
-//					fmt.Println("проблема с версией")
-//					return
-//				}
-//				//s.mu.RUnlock()
-//				//
-//				//handler := HandlerFunc(func(conn net.Conn) {
-//				//	err = conn.Close()
-//				//	log.Print(err, "это то что было внутри handler")
-//				//})
-//				//for _, _ = range s.handlers{
-//				//
-//				//	handl1 := s.handlers[path]
-//				//	if handl1 != nil{
-//				//		//
-//				//		handler = handl1
-//				//	}
-//				//
-//				//}
-//				//
-//				//s.mu.RUnlock()
-//				//handler(conn)
-//
-//	if path != path{
-//		conn.Close()
-//	}
-//	fmt.Println(path, "по этим путям зареган")
-//
-//	handler := func(conn net.Conn) {
-//		err := conn.Close()
-//		if err != nil {
-//			log.Print(err)
-//		}
-//	} // какую он играет роль???
-//	s.mu.RLock()
-//	for i := 0; i < len(s.handlers); i++ {
-//		fmt.Println(i, "это I")
-//		handl1 := s.handlers[path] // about
-//		// Nil != nil
-//		if handl1 != nil{
-//			handler = handl1
-//		}
-//
-//		break
-//	}
-//	s.mu.RUnlock()
-//	handler(conn)
-//	// хмм тут только что мне только
-//}
-
 
 func (s *Server) handle(conn net.Conn) {
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Print(err)
-		}
-	}()
+	defer conn.Close()
 
-	buffer := make([]byte, 4096)
-	//for {
-	n, err := conn.Read(buffer)
-	if err != nil {
+	buf := make([]byte, 4096)
+	for {
+		n, err := conn.Read(buf)
+
 		if err == io.EOF {
-			log.Printf("%v", buffer[:n])
+			log.Printf("%s", buf[:n])
+		}
+		if err != nil {
+			log.Println(err)
 			return
 		}
-		log.Print(err)
-		return
-	}
 
-	data := buffer[:n]
-	requestLineDelim := []byte{'\r', '\n'}
-	requestLineEnd := bytes.Index(data, requestLineDelim)
-	if requestLineEnd == -1 {
-		return
-	}
-
-	requestLine := string(data[:requestLineEnd])
-	parts := strings.Split(requestLine, " ")
-	if len(parts) != 3 {
-		return
-	}
-
-	path, version := parts[1], parts[2]
-
-	if version != "HTTP/1.1" {
-		return
-	}
-	if path != path{
-		conn.Close()
-	}
-	fmt.Println(path, "по этим путям зареган")
-
-	handler := func(conn net.Conn) {
-		err := conn.Close()
-		if err != nil {
-			log.Print(err)
-		}
-	} // какую он играет роль???
-	s.mu.RLock()
-	for i := 0; i < len(s.handlers); i++ {
-		fmt.Println(i, "это I")
-		handl1 := s.handlers[path] // about
-		// Nil != nil
-		if handl1 != nil{
-			handler = handl1
+		var req Request
+		data := buf[:n]
+		rLD := []byte{'\r', '\n'}
+		rLE := bytes.Index(data, rLD)
+		if rLE == -1 {
+			log.Println("ErrBadRequest")
+			return
 		}
 
-		break
+		hld:=[]byte{'\r', '\n', '\r', '\n'}
+		hLE := bytes.Index(data, hld)
+		if rLE == -1 {
+			return
+		}
+
+		headersLine := string(data[rLE:hLE])
+		headers := strings.Split(headersLine, "\r\n")[1:]
+
+		mp := make(map[string]string)
+		for _, v := range headers {
+			headerLine := strings.Split(v, ": ")
+			mp[headerLine[0]] = headerLine[1]
+		}
+
+		req.Headers = mp
+
+		req.Body=data[hLE+4:]
+
+		reqLine := string(data[:rLE])
+		parts := strings.Split(reqLine, " ")
+
+		if len(parts) != 3 {
+			log.Println("ErrBadRequest")
+			return
+		}
+
+		path, version := parts[1], parts[2]
+
+		if version != "HTTP/1.1" {
+			log.Println("ErrHTTPVersionNotValid")
+			return
+		}
+		decoded, err:=url.PathUnescape(path)
+		if err!=nil {
+			log.Println(err)
+			return
+		}
+		log.Println(decoded)
+
+		uri, err:=url.ParseRequestURI(decoded)
+		if err!=nil {
+			log.Println(err)
+			return
+		}
+
+		req.Conn = conn
+		req.QueryParams = uri.Query()
+		//   req.PathParams = uri.Path
+		//   log.Print(uri.Path)
+		//   log.Print(uri.Query())
+
+
+		var handler = func(req *Request) {
+			req.Conn.Close()
+		}
+		s.mu.RLock()
+		//   pathP, err :=s.checkPath(uri.Path)
+		//   if err!=nil {
+		// 	req.PathParams = pathP
+		//   }
+
+
+		//   for i := 0; i < len(s.handlers); i++ {
+		// 	if hr, found := s.handlers[uri.Path]; found {
+		// 	  handler = hr
+		// 	  break
+		// 	}
+		//   }
+		pathParam, hr:=s.checkPath(uri.Path)
+		if hr!=nil {
+			req.PathParams = pathParam
+			handler = hr
+		}
+		s.mu.RUnlock()
+		handler(&req)
 	}
-	s.mu.RUnlock()
-	handler(conn)
 }
 
+func (s *Server) checkPath(path string) (map[string]string, HandlerFunc) {
+
+	strRoutes := make([]string, len(s.handlers))
+	i := 0
+	for k := range s.handlers {
+		strRoutes[i] = k
+		i++
+	}
+
+	mp := make(map[string]string)
+
+	for i := 0; i < len(strRoutes); i++ {
+		flag := false
+		route := strRoutes[i]
+		partsRoute := strings.Split(route, "/")
+		pRotes := strings.Split(path, "/")
+
+		for j, v := range partsRoute {
+			if v != "" {
+				f := v[0:1]
+				l := v[len(v)-1:]
+				if f == "{" && l == "}" {
+					mp[v[1:len(v)-1]] = pRotes[j]
+					flag = true
+				} else if pRotes[j] != v {
+
+					strs := strings.Split(v, "{")
+					if len(strs) > 0 {
+						key := strs[1][:len(strs[1])-1]
+						mp[key] = pRotes[j][len(strs[0]):]
+						flag = true
+					} else {
+						flag = false
+						break
+					}
+				}
+				flag = true
+			}
+		}
+		if flag {
+			if hr, found := s.handlers[route]; found {
+				return mp, hr
+			}
+			break
+		}
+	}
+
+	return nil, nil
+
+}

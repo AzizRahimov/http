@@ -212,38 +212,73 @@ func main() {
 //}
 
 
-func execute(host string, port string) (err error)  {
-	srv := server.NewServer(net.JoinHostPort(host, port))
-	srv.Register("/", func(conn net.Conn) {
-		body := "Welcome to our web-site"
+func execute(host string, port string) (err error) {
+	srv:=server.NewServer(net.JoinHostPort(host, port))
+	srv.Register("/", func(req *server.Request) {
+		body:="Welcome to our web-site"
+		id:=req.QueryParams["id"]
+		log.Print(id)
 
-		log.Print(err)
-		_, err = conn.Write([]byte(
-			"HTTP/1.1 200 OK \r\n" +
-				"Content-Length: " + strconv.Itoa(len(body)) + "\r\n" +
-				"Content-Type: text/html\r\n" +
-				"Connection: close\r\n" +
-				"\r\n" +
+		_, err=req.Conn.Write([]byte(
+			"HTTP/1.1 200 OK\r\n"+
+				"Content-Lenght: "+ strconv.Itoa(len(body))+"\r\n"+
+				"Content-Type: text/html\r\n"+
+				"Connection: close\r\n"+
+				"\r\n"+
 				body,
 		))
 
-
-	})
-	srv.Register("/about", func(conn net.Conn) {
-		body := "About Golang Academy"
-
-		_, err = conn.Write([]byte(
-			"HTTP/1.1 200 OK \r\n" +
-				"Content-Length: " + strconv.Itoa(len(body)) + "\r\n" +
-				"Content-Type: text/html\r\n" +
-				"Connection: close\r\n" +
-				"\r\n" +
-				body,
-		))
-		if err != nil {
-			log.Println(err)
+		if err!=nil {
+			log.Print(err)
 		}
+	})
 
+	srv.Register("/payment/{id}", func(req *server.Request) {
+		id:=req.PathParams["id"]
+		log.Print(id)
+	})
+
+	srv.Register("/about", func(req *server.Request) {
+		body:="About Golang Academy"
+
+		_, err=req.Conn.Write([]byte(
+			"HTTP/1.1 200 OK\r\n"+
+				"Content-Lenght: "+ strconv.Itoa(len(body))+"\r\n"+
+				"Content-Type: text/html\r\n"+
+				"Connection: close\r\n"+
+				"\r\n"+
+				body,
+		))
+
+		if err!=nil {
+			log.Print(err)
+		}
 	})
 	return srv.Start()
+
+	// listener, err := net.Listen("tcp", net.JoinHostPort(host, port))
+	// if err != nil {
+	// 	log.Print(err)
+	// 	return err
+	// }
+	// defer func() {
+	// 	if cerr := listener.Close(); cerr != nil {
+	// 		if err == nil {
+	// 			err = cerr
+	// 			return
+	// 		}
+	// 		log.Print(cerr)
+	// 	}
+	// }()
+
+	// for {
+	// 	conn, err := listener.Accept()
+	// 	if err != nil {
+	// 		log.Print(err)
+	// 		continue
+	// 	}
+
+	// 	handle(conn)
+	// }
+	// return
 }
